@@ -17,15 +17,21 @@ function Assert-Guard {
     }
 }
 
-$report = Get-CodexRuntimeGuardReport
-Assert-Guard ($report.schemaVersion -eq 1) "diagnosis schemaVersion"
-Assert-Guard (@($report.checks).Count -ge 10) "expected diagnostic layers"
-Assert-Guard (@($report.checks.id | Sort-Object -Unique).Count -eq @($report.checks).Count) "check IDs must be unique"
-Assert-Guard ($report.acceptanceRequired -eq $true) "acceptance must remain explicit"
+$codexPackage = Get-AppxPackage -Name "OpenAI.Codex" -ErrorAction SilentlyContinue
+if ($codexPackage) {
+    $report = Get-CodexRuntimeGuardReport
+    Assert-Guard ($report.schemaVersion -eq 1) "diagnosis schemaVersion"
+    Assert-Guard (@($report.checks).Count -ge 10) "expected diagnostic layers"
+    Assert-Guard (@($report.checks.id | Sort-Object -Unique).Count -eq @($report.checks).Count) "check IDs must be unique"
+    Assert-Guard ($report.acceptanceRequired -eq $true) "acceptance must remain explicit"
 
-$dryRun = Invoke-CodexRuntimeGuardRepair
-Assert-Guard (-not $dryRun.applied) "repair defaults to dry run"
-Assert-Guard (@($dryRun.actions | Where-Object status -eq "APPLIED").Count -eq 0) "dry run must not apply actions"
+    $dryRun = Invoke-CodexRuntimeGuardRepair
+    Assert-Guard (-not $dryRun.applied) "repair defaults to dry run"
+    Assert-Guard (@($dryRun.actions | Where-Object status -eq "APPLIED").Count -eq 0) "dry run must not apply actions"
+}
+else {
+    Write-Host "Codex AppX is not installed; skipping live-host integration assertions."
+}
 
 $module = Get-Module CodexRuntimeGuard
 $fixtureRoot = Join-Path $env:TEMP "codex-runtime-guard-test-$PID"
