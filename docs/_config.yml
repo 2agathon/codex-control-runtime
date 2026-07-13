@@ -1,0 +1,8 @@
+title: Codex Control Runtime Observatory
+description: Evidence-first diagnostics for Codex Browser, Chrome, and Computer Use on Windows.
+theme: jekyll-theme-minimal
+show_downloads: true
+logo: /codex-control-runtime/assets/runtime-gates.svg
+repository: 2agathon/codex-control-runtime
+exclude:
+  - README.md

@@ -71,4 +71,44 @@ finally {
     Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+$redactionRoot = Join-Path $env:TEMP "codex-runtime-guard-redaction-test-$PID"
+try {
+    New-Item -ItemType Directory -Path $redactionRoot -Force | Out-Null
+    $rawSnapshotPath = Join-Path $redactionRoot "raw.json"
+    $publicSnapshotPath = Join-Path $redactionRoot "public.json"
+    [pscustomobject]@{
+        context = [pscustomobject]@{
+            machineName = $env:COMPUTERNAME
+            windowsUser = $env:USERNAME
+            windowsUserSid = "S-1-5-21-111-222-333-444"
+            accountLabel = "private-account"
+        }
+        details = [pscustomobject]@{
+            path = Join-Path $env:USERPROFILE ".codex\plugins"
+            profilePath = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data\Profile 7"
+            token = "do-not-publish"
+            version = "26.707.31428"
+            checks = @([pscustomobject]@{ id = "app.codex"; status = "PASS" })
+            emptyChecks = @()
+        }
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $rawSnapshotPath -Encoding utf8
+
+    $exportScript = Join-Path $PSScriptRoot "..\tools\runtime-guard\Export-CodexRuntimeGuardSnapshot.ps1"
+    & $exportScript -InputPath $rawSnapshotPath -OutputPath $publicSnapshotPath
+    $publicText = Get-Content -Raw -LiteralPath $publicSnapshotPath
+    $publicValue = $publicText | ConvertFrom-Json
+
+    Assert-Guard ($publicValue.context.machineName -eq "REDACTED") "machine name property redaction"
+    Assert-Guard ($publicValue.context.windowsUserSid -eq "REDACTED") "SID property redaction"
+    Assert-Guard ($publicValue.details.token -eq "REDACTED") "token property redaction"
+    Assert-Guard ($publicText -notmatch [regex]::Escape($env:USERPROFILE)) "user profile path redaction"
+    Assert-Guard ($publicText -notmatch "Profile 7") "Chrome profile name redaction"
+    Assert-Guard ($publicValue.details.version -eq "26.707.31428") "version must remain available"
+    Assert-Guard (@($publicValue.details.checks).Count -eq 1) "single-element arrays must remain arrays"
+    Assert-Guard (@($publicValue.details.emptyChecks).Count -eq 0) "empty arrays must remain arrays"
+}
+finally {
+    Remove-Item -LiteralPath $redactionRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host "Codex Runtime Guard self-test passed." -ForegroundColor Green

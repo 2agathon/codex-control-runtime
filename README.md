@@ -4,6 +4,35 @@
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D4.svg)](https://www.microsoft.com/windows)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE.svg)](https://github.com/PowerShell/PowerShell)
 
+> **Installed is not callable. Connected is not verified.**
+>
+> This lab identifies the first broken gate in the official Codex Browser, Chrome, and Computer Use chains on Windows, without silently substituting Playwright, shell automation, or another browser MCP.
+
+## 30-second orientation
+
+| What you see | Start here |
+| --- | --- |
+| `Computer Use plugins unavailable` | [Exact-error guide](https://2agathon.github.io/codex-control-runtime/errors/computer-use-plugins-unavailable.html) |
+| `mcp__node_repl__js` is missing | [Exact-error guide](https://2agathon.github.io/codex-control-runtime/errors/node-repl-tool-missing.html) |
+| `browser-client is not trusted` | [Exact-error guide](https://2agathon.github.io/codex-control-runtime/errors/browser-client-not-trusted.html) |
+| Native pipe or Sky runtime is unavailable | [Exact-error guide](https://2agathon.github.io/codex-control-runtime/errors/native-pipe-unavailable.html) |
+| `resourcesPath` is missing or stale | [Exact-error guide](https://2agathon.github.io/codex-control-runtime/errors/chrome-resources-path-missing.html) |
+| `bundled_executable_relocation_failed` | [Exact-error guide](https://2agathon.github.io/codex-control-runtime/errors/bundled-executable-relocation-failed.html) |
+
+Run the read-only Doctor from a cloned checkout:
+
+```powershell
+pwsh -NoProfile -File ".\tools\runtime-guard\Invoke-CodexRuntimeGuard.ps1" -Mode Diagnose -Deep -SaveSnapshot
+```
+
+The Doctor does not upload telemetry. Before attaching a result publicly, create a redacted copy:
+
+```powershell
+pwsh -NoProfile -File ".\tools\runtime-guard\Export-CodexRuntimeGuardSnapshot.ps1" -InputPath ".\path\to\snapshot.json"
+```
+
+Browse the zero-backend troubleshooting site at [2agathon.github.io/codex-control-runtime](https://2agathon.github.io/codex-control-runtime/), or [submit a sanitized runtime report](https://github.com/2agathon/codex-control-runtime/issues/new?template=runtime-report.yml). GitHub Pages hosts the site directly from this repository; there is no server, database, account system, or telemetry collector behind it.
+
 ## English
 
 **Codex Control Runtime Lab** is a field-tested diagnostic and acceptance toolkit for OpenAI Codex Browser, Chrome, and Computer Use on Windows. It helps distinguish a plugin that merely appears installed from an end-to-end runtime that is actually callable.
@@ -74,6 +103,7 @@ Codex / ChatGPT desktop host
 | [`references/official-sources.md`](references/official-sources.md) | 当前采用的官方资料入口 |
 | [`evidence/record-template.md`](evidence/record-template.md) | 新 run 的脱敏执行记录模板 |
 | [`evidence/2026-07-12-redacted-trace.md`](evidence/2026-07-12-redacted-trace.md) | 本次历史恢复随包携带的证据摘录及强度限制 |
+| [`docs/index.md`](docs/index.md) | 零后端精确报错索引与公开入口 |
 
 ## 快速基线
 

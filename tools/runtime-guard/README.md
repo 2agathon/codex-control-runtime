@@ -74,6 +74,17 @@ The Doctor reads Chrome profile directory names and extension versions. It does 
 
 Snapshots are local diagnostic artifacts. They contain the computer name, Windows account/SID, installed package paths, plugin paths, and Chrome profile directory names. Do not attach them to a public issue without redacting those fields.
 
+Create a separate public copy without modifying the raw snapshot:
+
+```powershell
+pwsh -NoProfile -File ".\tools\runtime-guard\Export-CodexRuntimeGuardSnapshot.ps1" `
+  -InputPath ".\path\to\snapshot.json"
+```
+
+The default output is `<snapshot-name>.public.json` beside the input. The exporter replaces the known identity fields, user-local path prefixes, Windows SID values, Chrome profile directory names, and secret-like properties while retaining versions, check IDs, statuses, and diagnostic messages. It refuses to overwrite either the raw input or an existing public copy unless `-Force` is explicit.
+
+Redaction is a guardrail, not permission to upload blindly. Open the generated JSON and check it before attaching it to the [structured runtime report](https://github.com/2agathon/codex-control-runtime/issues/new?template=runtime-report.yml).
+
 ## Controlled repair
 
 Always start with a dry run:
@@ -157,7 +168,7 @@ The Chrome sidebar and the desktop app can also be signed into different ChatGPT
 pwsh -NoProfile -File ".\tests\Test-CodexRuntimeGuard.ps1"
 ```
 
-The self-test runs live diagnosis and repair dry-run checks, then tests `resourcesPath` mutation and backup behavior only inside a temporary fixture. It does not alter live Codex manifests.
+The self-test runs live diagnosis and repair dry-run checks, then tests `resourcesPath` mutation, backup behavior, and public-snapshot redaction only inside temporary fixtures. It does not alter live Codex manifests.
 
 ## Sources
 
