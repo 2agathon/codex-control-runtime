@@ -1,0 +1,11 @@
+# Runtime output and local diagnostics
+state/
+*.bak
+*.tmp
+*.log
+
+# OS and editor metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "REDACTED",
+  "context": {
+    "machineName": "REDACTED",
+    "windowsUser": "REDACTED",
+    "windowsUserSid": "REDACTED",
+    "accountLabel": "ACCOUNT-A",
+    "workspaceLabel": "WORKSPACE-A"
+  },
+  "overall": "PASS",
+  "acceptanceRequired": true,
+  "checks": [
+    {
+      "status": "PASS",
+      "layer": "local-app",
+      "id": "app.codex",
+      "message": "REDACTED"
+    },
+    {
+      "status": "UNKNOWN",
+      "layer": "account-workspace",
+      "id": "account.capability",
+      "message": "Requires strict new-task acceptance."
+    }
+  ]
+}
