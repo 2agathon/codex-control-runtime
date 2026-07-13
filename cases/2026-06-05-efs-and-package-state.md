@@ -132,7 +132,7 @@ loose_ends:
 
 - `%USERPROFILE%\.codex\plugins\cache\openai-bundled\chrome\latest`
 
-最初仍是一个 junction，指向 `.tmp\bundled-marketplaces\openai-bundled\plugins\chrome`。  
+最初仍是一个 junction，指向 `.tmp\bundled-marketplaces\openai-bundled\plugins\chrome`。
 这解释了为什么“完整内容明明还在，本轮启动里插件却又像消失了一样”：稳定版本目录还在，但入口又回到了半截 staging 内容。
 
 ### 26.609 后 `.tmp` marketplace 已恢复完整
@@ -259,7 +259,7 @@ source = '\\?\%USERPROFILE%\.codex\.tmp\bundled-marketplaces\openai-bundled'
 
 ### 第一层：本机复制链是否恢复
 
-只看一件事：之前失败的 `copyfile` 路径是否在真实目标目录上成功。  
+只看一件事：之前失败的 `copyfile` 路径是否在真实目标目录上成功。
 如果这层不成功，不必谈 UI。
 
 ### 第二层：desktop 重启后的产品表现
@@ -276,7 +276,7 @@ source = '\\?\%USERPROFILE%\.codex\.tmp\bundled-marketplaces\openai-bundled'
 
 ### 第三层：扩展后端是否真的能起页
 
-第二层通过后，还要再看具体 plugin 的后端能不能真连起来。  
+第二层通过后，还要再看具体 plugin 的后端能不能真连起来。
 这次针对 Chrome 扩展后端的最终验收是：
 
 - 先补齐本地 `chrome` plugin cache 缺失的 `.codex-plugin / assets / docs`
@@ -294,24 +294,24 @@ source = '\\?\%USERPROFILE%\.codex\.tmp\bundled-marketplaces\openai-bundled'
 
 ### 不要把这次处置扩展成通用答案
 
-这次命中的，是 `WindowsApps` 受保护文件复制到普通目标目录失败。  
+这次命中的，是 `WindowsApps` 受保护文件复制到普通目标目录失败。
 如果未来机器上没有 `copyfile` 失败、没有 `missing-helper-path`、没有 `node-repl-missing`，就不应机械套用 EFS 方案。
 
 ### 不要把“另一台机器也 unavailable”直接读成同一根因
 
-第二台机器没有做同样深度的本地复盘。  
+第二台机器没有做同样深度的本地复盘。
 它可以说明“问题不一定只在这台主机”，但不能单独证明“另一台机器也是同样的文件复制链问题”。
 
 ### 不要把 UI 恢复、扩展后端恢复、官方根因闭环混成一句话
 
-这次能实锤的，是本机复制链恢复了，desktop UI 也恢复了，而且 Chrome 扩展后端完成了一次真实起页。  
+这次能实锤的，是本机复制链恢复了，desktop UI 也恢复了，而且 Chrome 扩展后端完成了一次真实起页。
 但这仍然只说明本机修复路径成立，不等于产品侧已从根上消除了 `WindowsApps` 受保护文件复制与局部 plugin cache 不完整这类问题。
 
 26.609 后，局部 plugin cache 不完整问题看起来已改善，但 `WindowsApps` 受保护文件复制到普通非加密目录仍失败。不要因为 `.tmp` marketplace 这次完整了，就把 EFS 处置一起撤掉。
 
 ## 外部对照
 
-公开 issue 里有高相似案例：[openai/codex#25220](https://github.com/openai/codex/issues/25220)。  
+公开 issue 里有高相似案例：[openai/codex#25220](https://github.com/openai/codex/issues/25220)。
 如果未来再遇到类似现象，值得先对照那条 issue 的错误签名，而不是从零开始猜。后续也已在该 issue 里补过一条 follow-up：把真实目标目录改成 EFS 后，本机 bundled plugin availability 可以恢复。
 
 当前分诊和受控修复不再从这份历史记录执行，统一从 [`../tools/runtime-guard/README.md`](../tools/runtime-guard/README.md) 进入。
