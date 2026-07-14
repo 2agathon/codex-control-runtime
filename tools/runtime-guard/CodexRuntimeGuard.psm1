@@ -119,7 +119,7 @@ function Get-PluginState {
         name = $Name
         root = $root
         rootExists = Test-Path -LiteralPath $root
-        versions = @($versionDirectories.Name)
+        versions = @($versionDirectories | ForEach-Object { $_.Name })
         newestVersionPath = if ($versionDirectories.Count -gt 0) { $versionDirectories[0].FullName } else { $null }
         latestRequired = $RequireLatest
         latestPath = $latestPath
@@ -175,7 +175,13 @@ function Get-V2ManifestState {
     }
 
     $entryStates = foreach ($entry in $entries) {
-        $paths = $entry.paths
+        $pathsProperty = $entry.PSObject.Properties["paths"]
+        $paths = if ($pathsProperty -and $null -ne $pathsProperty.Value) {
+            $pathsProperty.Value
+        }
+        else {
+            [pscustomobject]@{}
+        }
         $pathStates = [ordered]@{}
         foreach ($property in @("browserClientPath", "codexCliPath", "codexHome", "extensionHostPath", "nodePath", "nodeReplPath", "resourcesPath")) {
             $value = if ($paths.PSObject.Properties.Name -contains $property) { [string] $paths.$property } else { $null }
@@ -189,7 +195,10 @@ function Get-V2ManifestState {
             entryId = [string] $entry.entryId
             appVersion = [string] $entry.appVersion
             paths = [pscustomobject] $pathStates
-            resourcesMatchesCurrentApp = ([string] $paths.resourcesPath -eq $ExpectedResourcesPath)
+            resourcesMatchesCurrentApp = (
+                $paths.PSObject.Properties.Name -contains "resourcesPath" -and
+                [string] $paths.resourcesPath -eq $ExpectedResourcesPath
+            )
         }
     }
 
@@ -211,6 +220,16 @@ function Get-CuaRuntimeState {
 
     $sourceManifestPath = Join-Path $PackagedCuaNodePath "manifest.json"
     $sourceManifest = Read-JsonFile -Path $sourceManifestPath
+    $expectedRuntimeId = $null
+    $expectedRuntimeIdError = $null
+    if ($sourceManifest.valid) {
+        try {
+            $expectedRuntimeId = Get-CuaRuntimeId -SourcePath $PackagedCuaNodePath
+        }
+        catch {
+            $expectedRuntimeIdError = $_.Exception.Message
+        }
+    }
     $runtimeRoot = Join-Path $env:LOCALAPPDATA "OpenAI\Codex\runtimes\cua_node"
     $runtimeStates = @()
 
@@ -262,6 +281,8 @@ function Get-CuaRuntimeState {
         packagedManifestValid = $sourceManifest.valid
         packagedManifestError = $sourceManifest.error
         packagedRuntimeArchiveVersion = if ($sourceManifest.valid) { [string] $sourceManifest.value.runtime_archive_version } else { $null }
+        expectedRuntimeId = $expectedRuntimeId
+        expectedRuntimeIdError = $expectedRuntimeIdError
         packagedStats = $sourceStats
         runtimeRoot = $runtimeRoot
         runtimes = @($runtimeStates)
@@ -337,6 +358,7 @@ function Get-CodexRuntimeGuardReport {
             generatedAt = (Get-Date).ToString("o")
             context = [pscustomobject]@{ accountLabel = $AccountLabel; workspaceLabel = $WorkspaceLabel }
             overall = "FAIL"
+            acceptanceRequired = $true
             checks = @($checks)
             state = $null
         }
@@ -396,7 +418,13 @@ function Get-CodexRuntimeGuardReport {
         }
     )
     $runtimeStatus = if (-not $runtime.packagedManifestValid -or $matchingHealthy.Count -eq 0) { "FAIL" } else { "PASS" }
-    $checks.Add((New-GuardCheck -Id "computer-use.runtime" -Layer "relocated-runtime" -Status $runtimeStatus -Message "Packaged runtime=$($runtime.packagedRuntimeArchiveVersion); matching healthy runtimes=$($matchingHealthy.Count)." -Details $runtime -Repairable $false))
+    $runtimeRepairable = (
+        $runtime.packagedPathExists -and
+        $runtime.packagedManifestValid -and
+        $runtime.expectedRuntimeId -and
+        $matchingHealthy.Count -eq 0
+    )
+    $checks.Add((New-GuardCheck -Id "computer-use.runtime" -Layer "relocated-runtime" -Status $runtimeStatus -Message "Packaged runtime=$($runtime.packagedRuntimeArchiveVersion); matching healthy runtimes=$($matchingHealthy.Count)." -Details $runtime -Repairable $runtimeRepairable))
 
     $extension = Get-ChromeExtensionState
     $extensionStatus = if ($extension.installedProfileCount -gt 0) { "PASS" } else { "WARN" }
@@ -464,6 +492,142 @@ function Backup-GuardFile {
     $destination
 }
 
+function Get-CuaRuntimeId {
+    param([Parameter(Mandatory)] [string] $SourcePath)
+
+    $fingerprintFiles = @(
+        [pscustomobject]@{ name = "manifest.json"; path = "manifest.json" },
+        [pscustomobject]@{ name = "bin/node.exe"; path = "bin\node.exe" },
+        [pscustomobject]@{ name = "bin/node_repl.exe"; path = "bin\node_repl.exe" }
+    )
+    $segments = foreach ($file in $fingerprintFiles) {
+        $fullPath = Join-Path $SourcePath $file.path
+        if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+            throw "Packaged CUA runtime fingerprint file is missing: $fullPath"
+        }
+        $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $fullPath).Hash.ToLowerInvariant()
+        "$($file.name)`0$digest`0"
+    }
+
+    $payload = [Text.Encoding]::UTF8.GetBytes(($segments -join ""))
+    $digestBytes = [Security.Cryptography.SHA256]::HashData($payload)
+    [Convert]::ToHexString($digestBytes).ToLowerInvariant().Substring(0, 16)
+}
+
+function Copy-GuardDirectoryContent {
+    param(
+        [Parameter(Mandatory)] [string] $SourcePath,
+        [Parameter(Mandatory)] [string] $DestinationPath
+    )
+
+    New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
+    foreach ($directory in @(Get-ChildItem -LiteralPath $SourcePath -Recurse -Force -Directory)) {
+        $relative = [IO.Path]::GetRelativePath($SourcePath, $directory.FullName)
+        New-Item -ItemType Directory -Path (Join-Path $DestinationPath $relative) -Force | Out-Null
+    }
+
+    $copiedFiles = 0
+    foreach ($file in @(Get-ChildItem -LiteralPath $SourcePath -Recurse -Force -File)) {
+        $relative = [IO.Path]::GetRelativePath($SourcePath, $file.FullName)
+        $target = Join-Path $DestinationPath $relative
+        New-Item -ItemType Directory -Path (Split-Path $target -Parent) -Force | Out-Null
+
+        # Stream the content instead of copying metadata. WindowsApps files can carry
+        # Application Protected EFS attributes that cannot be recreated in LocalAppData.
+        $input = [IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        try {
+            $output = [IO.File]::Open($target, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            try {
+                $input.CopyTo($output)
+            }
+            finally {
+                $output.Dispose()
+            }
+        }
+        finally {
+            $input.Dispose()
+        }
+        $copiedFiles++
+    }
+    $copiedFiles
+}
+
+function Repair-CuaRuntime {
+    param(
+        [Parameter(Mandatory)] [object] $RuntimeState,
+        [switch] $Apply
+    )
+
+    if (-not $RuntimeState.packagedPathExists -or -not $RuntimeState.packagedManifestValid) {
+        return [pscustomobject]@{ target = "cuaRuntime"; path = $RuntimeState.packagedPath; status = "REFUSED"; message = "Packaged CUA runtime or its manifest is unavailable." }
+    }
+
+    $healthyMatch = @($RuntimeState.matchingRuntimes | Where-Object {
+        $_.manifestValid -and $_.nodeExists -and $_.nodeReplExists -and $_.computerUseHelperExists
+    })
+    if ($healthyMatch.Count -gt 0) {
+        return [pscustomobject]@{ target = "cuaRuntime"; path = $healthyMatch[0].path; status = "NOOP"; message = "Current packaged CUA runtime is already relocated and healthy." }
+    }
+
+    $source = [string] $RuntimeState.packagedPath
+    $runtimeId = Get-CuaRuntimeId -SourcePath $source
+    $destination = Join-Path $RuntimeState.runtimeRoot $runtimeId
+    $requiredPaths = @(
+        "manifest.json",
+        "bin\node.exe",
+        "bin\node_repl.exe",
+        "bin\node_modules",
+        "bin\node_modules\@oai\sky\bin\windows\codex-computer-use.exe"
+    )
+    $missingSourcePaths = @($requiredPaths | Where-Object { -not (Test-Path -LiteralPath (Join-Path $source $_)) })
+    if ($missingSourcePaths.Count -gt 0) {
+        return [pscustomobject]@{ target = "cuaRuntime"; path = $source; status = "REFUSED"; message = "Packaged CUA runtime is incomplete: $($missingSourcePaths -join ', ')." }
+    }
+    if (Test-Path -LiteralPath $destination) {
+        return [pscustomobject]@{ target = "cuaRuntime"; path = $destination; status = "REFUSED"; message = "Expected destination exists but did not pass health checks; refusing to overwrite it." }
+    }
+    if (-not $Apply) {
+        return [pscustomobject]@{ target = "cuaRuntime"; path = $destination; status = "DRY_RUN"; message = "Would stream-copy the packaged runtime without Application Protected metadata, verify it, and atomically enable runtime $runtimeId." }
+    }
+
+    New-Item -ItemType Directory -Path $RuntimeState.runtimeRoot -Force | Out-Null
+    $staging = Join-Path $RuntimeState.runtimeRoot ".staging-$runtimeId-$([guid]::NewGuid().ToString('N'))"
+    try {
+        $copiedFiles = Copy-GuardDirectoryContent -SourcePath $source -DestinationPath $staging
+        foreach ($relative in $requiredPaths) {
+            if (-not (Test-Path -LiteralPath (Join-Path $staging $relative))) {
+                throw "Relocated CUA runtime is missing required path: $relative"
+            }
+        }
+        foreach ($relative in @("manifest.json", "bin\node.exe", "bin\node_repl.exe")) {
+            $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $source $relative)).Hash
+            $stagingHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $staging $relative)).Hash
+            if ($sourceHash -ne $stagingHash) {
+                throw "Relocated CUA runtime hash mismatch: $relative"
+            }
+        }
+
+        $sourceStats = @(Get-ChildItem -LiteralPath $source -Recurse -Force -File | Measure-Object -Property Length -Sum)
+        $stagingStats = @(Get-ChildItem -LiteralPath $staging -Recurse -Force -File | Measure-Object -Property Length -Sum)
+        if ($sourceStats[0].Count -ne $stagingStats[0].Count -or [long] $sourceStats[0].Sum -ne [long] $stagingStats[0].Sum) {
+            throw "Relocated CUA runtime file count or byte total does not match the packaged source."
+        }
+        Move-Item -LiteralPath $staging -Destination $destination
+    }
+    catch {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+        throw
+    }
+
+    [pscustomobject]@{
+        target = "cuaRuntime"
+        path = $destination
+        status = "APPLIED"
+        message = "Relocated runtime $runtimeId with $copiedFiles verified file(s)."
+        runtimeId = $runtimeId
+    }
+}
+
 function Repair-ResourcePaths {
     param(
         [Parameter(Mandatory)] [object] $App,
@@ -486,7 +650,18 @@ function Repair-ResourcePaths {
             continue
         }
 
-        $stale = @($matchingEntries | Where-Object { [string] $_.paths.resourcesPath -ne $App.resourcesPath })
+        $entriesWithoutPaths = @($matchingEntries | Where-Object {
+            -not ($_.PSObject.Properties.Name -contains "paths") -or $null -eq $_.paths
+        })
+        if ($entriesWithoutPaths.Count -gt 0) {
+            $actions += [pscustomobject]@{ target = "resourcesPath"; path = $path; status = "REFUSED"; message = "$($entriesWithoutPaths.Count) matching entry/entries lack a paths object." }
+            continue
+        }
+
+        $stale = @($matchingEntries | Where-Object {
+            $property = $_.paths.PSObject.Properties["resourcesPath"]
+            -not $property -or [string] $property.Value -ne $App.resourcesPath
+        })
         if ($stale.Count -eq 0) {
             $actions += [pscustomobject]@{ target = "resourcesPath"; path = $path; status = "NOOP"; message = "Already points to the current AppX resources path." }
             continue
@@ -499,13 +674,28 @@ function Repair-ResourcePaths {
 
         $backup = Backup-GuardFile -Path $path -BackupDirectory $BackupDirectory
         foreach ($entry in $stale) {
-            $entry.paths.resourcesPath = $App.resourcesPath
+            if ($entry.paths.PSObject.Properties.Name -contains "resourcesPath") {
+                $entry.paths.resourcesPath = $App.resourcesPath
+            }
+            else {
+                $entry.paths | Add-Member -NotePropertyName "resourcesPath" -NotePropertyValue $App.resourcesPath
+            }
         }
         $json.value | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $path -Encoding utf8
         $verify = Read-JsonFile -Path $path
-        if (-not $verify.valid) {
+        $postconditionFailed = $true
+        if ($verify.valid) {
+            $verifiedEntries = @($verify.value.entries | Where-Object { @($_.nativeHostNames) -contains $script:NativeHostName })
+            $postconditionFailed = @($verifiedEntries | Where-Object {
+                -not ($_.PSObject.Properties.Name -contains "paths") -or
+                $null -eq $_.paths -or
+                -not ($_.paths.PSObject.Properties.Name -contains "resourcesPath") -or
+                [string] $_.paths.resourcesPath -ne $App.resourcesPath
+            }).Count -gt 0
+        }
+        if (-not $verify.valid -or $postconditionFailed) {
             Copy-Item -LiteralPath $backup -Destination $path -Force
-            throw "Updated manifest failed JSON validation and was rolled back: $path"
+            throw "Updated manifest failed validation or its resourcesPath postcondition and was rolled back: $path"
         }
         $actions += [pscustomobject]@{ target = "resourcesPath"; path = $path; status = "APPLIED"; message = "Updated to current AppX resources path."; backup = $backup }
     }
@@ -613,7 +803,7 @@ await install({
 function Invoke-CodexRuntimeGuardRepair {
     [CmdletBinding()]
     param(
-        [ValidateSet("All", "ResourcePaths", "ChromeLatest", "NativeHost")] [string[]] $Target = @("All"),
+        [ValidateSet("All", "ResourcePaths", "ChromeLatest", "NativeHost", "CuaRuntime")] [string[]] $Target = @("All"),
         [switch] $Apply,
         [string] $BackupRoot
     )
@@ -628,7 +818,7 @@ function Invoke-CodexRuntimeGuardRepair {
     }
     $runId = (Get-Date).ToString("yyyyMMdd-HHmmss")
     $backupDirectory = Join-Path $BackupRoot $runId
-    $targets = if ($Target -contains "All") { @("ChromeLatest", "NativeHost", "ResourcePaths") } else { @($Target) }
+    $targets = if ($Target -contains "All") { @("ChromeLatest", "NativeHost", "ResourcePaths", "CuaRuntime") } else { @($Target) }
     $actions = @()
 
     if ($targets -contains "ChromeLatest") {
@@ -647,6 +837,10 @@ function Invoke-CodexRuntimeGuardRepair {
     if ($targets -contains "ResourcePaths") {
         $manifestPaths = @($before.state.v2Manifests | Select-Object -ExpandProperty path)
         $actions += Repair-ResourcePaths -App $before.state.app -ManifestPaths $manifestPaths -BackupDirectory $backupDirectory -Apply:$Apply
+    }
+
+    if ($targets -contains "CuaRuntime") {
+        $actions += Repair-CuaRuntime -RuntimeState $before.state.cuaRuntime -Apply:$Apply
     }
 
     [pscustomobject]@{

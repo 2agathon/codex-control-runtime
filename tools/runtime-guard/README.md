@@ -1,6 +1,6 @@
 # Codex Runtime Guard
 
-This tool is maintained as part of the [Codex Control Runtime Lab](../../README.md). The implementation in this directory is the sole source of truth; `.ai/operations/codex-runtime-guard/` contains compatibility shims only.
+This tool is maintained as part of the [Codex Control Runtime Lab](../../README.md). The implementation in this directory is the sole source of truth for executable behavior; the canonical diagnostic gates and evidence rules live in [the diagnostic model](../../protocol/diagnostic-model.md). `.ai/operations/codex-runtime-guard/` contains compatibility shims only.
 
 The `.ai/operations` shims belong to the original workspace and are not included when this experiment directory is distributed alone. They are not required to run the canonical scripts below.
 
@@ -56,6 +56,63 @@ pwsh -NoProfile -File ".\tools\runtime-guard\Compare-CodexRuntimeSnapshots.ps1" 
 
 The comparison fingerprint excludes live named-pipe counts because they change when tasks start and stop. Pipe names remain in each snapshot as evidence, but they do not turn ordinary task activity into a false local-state change.
 
+## Optional update monitor
+
+Run the monitor once without installing anything:
+
+```powershell
+pwsh -NoProfile -File ".\tools\runtime-guard\Invoke-CodexRuntimeGuardMonitor.ps1" -PassThru
+```
+
+The first run records a baseline. Later runs stay quiet unless the Codex AppX version, bundled Browser/Chrome/Computer Use versions, packaged `cua_node` archive version, or local Doctor status changes. On a change it saves a full local snapshot under `%LOCALAPPDATA%\OpenAI\CodexControlRuntimeLab\monitor\` and displays a Windows notification. It never calls Repair. An unchanged failure is not repeatedly notified; inspect the latest saved state if you intentionally ignored an earlier alert.
+
+Register the monitor for the current Windows user at logon and daily at noon:
+
+```powershell
+pwsh -NoProfile -File ".\tools\runtime-guard\Register-CodexRuntimeGuardMonitor.ps1"
+```
+
+Remove it without deleting saved state:
+
+```powershell
+pwsh -NoProfile -File ".\tools\runtime-guard\Register-CodexRuntimeGuardMonitor.ps1" -Unregister
+```
+
+Registration is opt-in. The repository does not install a scheduled task by itself. The registration script copies the monitor and guard module to `%LOCALAPPDATA%\OpenAI\CodexControlRuntimeLab\monitor-bin\`, so the scheduled task does not depend on the checkout remaining at the same path. Re-run registration after pulling a newer guard implementation to refresh that deployed copy. Trigger times use the current Windows user's local time. Unregistering removes the task but deliberately preserves deployed files, state, and snapshots for inspection.
+
+## Optional unattended Auto-Heal
+
+Run Auto-Heal once without installing a task:
+
+```powershell
+pwsh -NoProfile -File ".\tools\runtime-guard\Invoke-CodexRuntimeGuardAutoHeal.ps1" -NoNotification -PassThru
+```
+
+Register it for the current Windows user at logon and every ten minutes:
+
+```powershell
+pwsh -NoProfile -File ".\tools\runtime-guard\Register-CodexRuntimeGuardAutoHeal.ps1"
+```
+
+Remove its startup registration without deleting its history:
+
+```powershell
+pwsh -NoProfile -File ".\tools\runtime-guard\Register-CodexRuntimeGuardAutoHeal.ps1" -Unregister
+```
+
+The registrar prefers a limited current-user scheduled task. If Windows denies task registration, it automatically installs an `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entry and a `wscript.exe`-launched hidden single-instance daemon instead; this avoids Windows Terminal opening a visible PowerShell tab and needs no administrator approval. The deployed copy lives under `%LOCALAPPDATA%\OpenAI\CodexControlRuntimeLab\auto-heal-bin\`; state and append-only action history live under the adjacent `auto-heal\` directory. Auto-Heal and its daemon use per-user mutexes, so overlapping invocations do not race.
+
+Auto-Heal applies only checks already marked `repairable` by the Doctor:
+
+- stale or missing v2 manifest `resourcesPath` values;
+- a missing/broken Chrome `latest` Junction with one unambiguous complete version;
+- missing/broken Native Messaging registration through the bundled installer;
+- a missing packaged-version `cua_node` relocation whose destination ID can be reproduced from the desktop app's content-hash algorithm.
+
+WindowsApps can mark packaged runtime files as `Application Protected` EFS content. The CUA repair streams file contents into a staging directory instead of preserving source metadata, verifies required paths, key hashes, total file count, and total bytes, then atomically enables the content-addressed runtime. Existing runtime directories are never overwritten or deleted.
+
+When Chrome state changes, Auto-Heal restarts only the matching `extension-host.exe`. When a CUA runtime is added while Codex is already running, it records `codexRestartRequired=true` and displays one notification; it never force-closes an active Codex task. Unknown schemas and non-repairable failures remain untouched and are recorded as `UNREPAIRED_FAILURE` or `REPAIR_INCOMPLETE`.
+
 ## What the Doctor checks
 
 The report separates these layers:
@@ -105,17 +162,19 @@ Repair targets can be narrowed:
 pwsh -NoProfile -File ".\tools\runtime-guard\Invoke-CodexRuntimeGuard.ps1" -Mode Repair -Target ResourcePaths
 pwsh -NoProfile -File ".\tools\runtime-guard\Invoke-CodexRuntimeGuard.ps1" -Mode Repair -Target ChromeLatest
 pwsh -NoProfile -File ".\tools\runtime-guard\Invoke-CodexRuntimeGuard.ps1" -Mode Repair -Target NativeHost
+pwsh -NoProfile -File ".\tools\runtime-guard\Invoke-CodexRuntimeGuard.ps1" -Mode Repair -Target CuaRuntime
 ```
 
 The repairer can:
 
-- update stale `resourcesPath` values in the two v2 manifests to the currently installed Codex AppX resources directory;
+- add missing or update stale `resourcesPath` values in the two v2 manifests when the matching entry still has a recognizable `paths` object;
 - recreate a missing/broken Chrome `latest` Junction only when one complete newest version directory is unambiguous;
 - invoke the bundled Chrome `installManifest.mjs` when Native Messaging registration is missing or broken.
+- relocate the current packaged `cua_node` runtime using the desktop app's content-derived ID, metadata-free stream copy, staging, and post-copy verification.
 
 Before modifying a v2 manifest, it writes a backup in a timestamped subdirectory under `%LOCALAPPDATA%\OpenAI\Codex\runtime-guard-backups`. A rewritten JSON file is parsed immediately; failed validation restores the backup.
 
-The repairer intentionally does not automate `cua_node` relocation. The destination ID is selected by private desktop runtime logic and cannot be inferred safely from a folder name alone. If the Doctor finds no relocated runtime matching the packaged manifest, preserve the report and inspect current desktop logs before any stream-copy. The historical recovery and evidence standard are recorded in [the incident reconstruction](../../cases/2026-07-12-runtime-recovery.md).
+The CUA destination ID is never guessed from an archive name or an old folder. It is recomputed from the same three source fingerprints used by the current desktop implementation: `manifest.json`, `bin/node.exe`, and `bin/node_repl.exe`. If those inputs, the packaged manifest, the Sky helper, or the expected destination state are ambiguous, repair refuses to proceed. The historical recovery and evidence standard are recorded in [the incident reconstruction](../../cases/2026-07-12-runtime-recovery.md).
 
 ## Required acceptance
 
@@ -141,24 +200,9 @@ A green local report does not prove service-side capability or per-task tool inj
 
 ## Decision rule
 
-```text
-Doctor FAIL
-  -> repair only the failed local layer, then rerun Doctor
+Use the canonical [`PASS / ATTENTION / FAIL` and first-broken-gate rule](../../protocol/diagnostic-model.md#decision-rule). This manual does not redefine it.
 
-Doctor has no local FAIL, acceptance task lacks tools
-  -> stop local repair; compare account/workspace/task routing
-
-One Chrome profile fails, another passes
-  -> inspect that Chrome profile, not AppX/runtime
-
-Two accounts fail at the same local path on one Windows user
-  -> shared local state is the leading suspect
-
-Only one account/workspace fails on the same healthy local state
-  -> service-side entitlement or policy is the leading suspect
-```
-
-The guard should be run after an event or failure, not installed as a silent auto-repair service. Automatic mutation could overwrite a valid future schema. Detection may be scheduled later, but repair remains explicit.
+The guard can be run manually after an event or failure. The optional Monitor remains read-only. Auto-Heal is a separate opt-in task and mutates only allowlisted, schema-recognized local drift; unknown future shapes stop rather than being rewritten.
 
 The Chrome sidebar and the desktop app can also be signed into different ChatGPT accounts. The Doctor cannot read or reconcile those identities. When switching accounts, verify both surfaces manually, restart the intended desktop host, and run acceptance from a new task.
 
@@ -168,7 +212,7 @@ The Chrome sidebar and the desktop app can also be signed into different ChatGPT
 pwsh -NoProfile -File ".\tests\Test-CodexRuntimeGuard.ps1"
 ```
 
-The self-test runs live diagnosis and repair dry-run checks, then tests `resourcesPath` mutation, backup behavior, and public-snapshot redaction only inside temporary fixtures. It does not alter live Codex manifests.
+The self-test runs live diagnosis and repair dry-run checks, validates reports against the JSON Schema, then tests stale and missing `resourcesPath` mutation, content-addressed CUA relocation, backup behavior, monitor state transitions, healthy Auto-Heal no-op behavior, and public-snapshot redaction inside temporary fixtures. It does not alter live Codex manifests or register a scheduled task.
 
 ## Sources
 

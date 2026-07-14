@@ -18,6 +18,8 @@ loose_ends:
 
 # 这次不是一条故障
 
+> **HISTORY ONLY:** 本文件是事件重建，不是可直接重放的修复脚本。当前操作只以 [`../tools/runtime-guard/README.md`](../tools/runtime-guard/README.md) 与 Doctor 的第一断点为准。
+
 从 2026 年 6 月到 7 月，表面现象反复变成：
 
 - Settings 显示 `Computer Use plugins unavailable`

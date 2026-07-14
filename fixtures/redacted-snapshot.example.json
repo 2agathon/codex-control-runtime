@@ -15,13 +15,16 @@
       "status": "PASS",
       "layer": "local-app",
       "id": "app.codex",
-      "message": "REDACTED"
+      "message": "REDACTED",
+      "repairable": false
     },
     {
       "status": "UNKNOWN",
       "layer": "account-workspace",
       "id": "account.capability",
-      "message": "Requires strict new-task acceptance."
+      "message": "Requires strict new-task acceptance.",
+      "repairable": false
     }
-  ]
+  ],
+  "state": null
 }

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet("Diagnose", "Repair")] [string] $Mode = "Diagnose",
-    [ValidateSet("All", "ResourcePaths", "ChromeLatest", "NativeHost")] [string[]] $Target = @("All"),
+    [ValidateSet("All", "ResourcePaths", "ChromeLatest", "NativeHost", "CuaRuntime")] [string[]] $Target = @("All"),
     [switch] $Apply,
     [switch] $Deep,
     [switch] $SaveSnapshot,

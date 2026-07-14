@@ -18,6 +18,8 @@ loose_ends:
 
 # 诊断记录
 
+> **HISTORY ONLY:** 本文件保留当时的证据与判断，不是当前修复手册。任何操作都先以 [`../tools/runtime-guard/README.md`](../tools/runtime-guard/README.md) 和当前 Doctor 输出为准。
+
 ## 2026-07-12 后续入口
 
 > 历史阶段记录：仅在命中本文件完整错误签名时用于理解 6 月现场，不再作为当前默认修复手册。

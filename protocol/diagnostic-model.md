@@ -1,5 +1,7 @@
 # Diagnostic model
 
+This file is the repository's sole normative source for diagnostic layer order, required evidence, local Doctor gates, and first-broken-gate decisions. Other documents may link to these rules but must not redefine them.
+
 ## Layers
 
 按下面顺序查第一处断点，不从最终症状倒推单一原因：
